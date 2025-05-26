@@ -19,6 +19,12 @@ volatile bool flancoDetectado = false;
 unsigned long ultimaTransicion = 0;
 bool estadoAnteriorPulsador = LOW;
 
+// Estados de los LEDs
+bool estadoLED1 = false;
+bool estadoLED2 = false;
+bool estadoLED3 = false;
+bool estadoLED4 = false;
+
 // Luz
 float Vcc = 5.0;
 float Rc = 10000;
@@ -37,6 +43,7 @@ void setup() {
   pinMode(PulsadorPin, INPUT_PULLUP);
 
   Serial1.begin(9600);
+  Serial.begin(9600);
   attachInterrupt(digitalPinToInterrupt(PulsadorPin), contarPulso, CHANGE);
 
   dht.begin();
@@ -79,37 +86,43 @@ void loop() {
 
     // ENVÍO SERIAL
     Serial1.print("Frecuencia: ");
-Serial1.print(cuenta);
-Serial1.println(" Hz");
+    Serial1.print(cuenta);
+    Serial1.println(" Hz");
 
-Serial1.print("Temperatura: ");
-Serial1.print(temperatura);
-Serial1.println(" C");
+    Serial1.print("Temperatura: ");
+    Serial1.print(temperatura);
+    Serial1.println(" C");
 
-Serial1.print("Humedad: ");
-Serial1.print(humedad);
-Serial1.println(" %");
+    Serial1.print("Humedad: ");
+    Serial1.print(humedad);
+    Serial1.println(" %");
 
-Serial1.print("Luz: ");
-Serial1.print(luz);
-Serial1.println(" %");
+    Serial1.print("Luz: ");
+    Serial1.print(luz);
+    Serial1.println(" %");
 
-Serial1.print("Conteo: ");
-Serial1.println(cuenta);
+    Serial1.print("Conteo: ");
+    Serial1.println(cuenta);
   }
 
-  // Control por comandos desde Serial1 (opcional)
+  // Control por comandos desde Serial1 con toggle
   if (Serial1.available()) {
     String comando = Serial1.readStringUntil('\n');
     comando.trim();
+    Serial.println(comando);
 
-    if (comando == "LED1") digitalWrite(LED1, HIGH);
-    else if (comando == "LED1OFF") digitalWrite(LED1, LOW);
-    else if (comando == "LED2") digitalWrite(LED2, HIGH);
-    else if (comando == "LED2OFF") digitalWrite(LED2, LOW);
-    else if (comando == "LED3") digitalWrite(LED3, HIGH);
-    else if (comando == "LED3OFF") digitalWrite(LED3, LOW);
-     else if (comando == "LED4") digitalWrite(LED4, HIGH);
-    else if (comando == "LED4OFF") digitalWrite(LED4, LOW);
+    if (comando == "LED1") {
+      estadoLED1 = !estadoLED1;
+      digitalWrite(LED1, estadoLED1 ? HIGH : LOW);
+    } else if (comando == "LED2") {
+      estadoLED2 = !estadoLED2;
+      digitalWrite(LED2, estadoLED2 ? HIGH : LOW);
+    } else if (comando == "LED3") {
+      estadoLED3 = !estadoLED3;
+      digitalWrite(LED3, estadoLED3 ? HIGH : LOW);
+    } else if (comando == "LED4") {
+      estadoLED4 = !estadoLED4;
+      digitalWrite(LED4, estadoLED4 ? HIGH : LOW);
+    }
   }
 }
