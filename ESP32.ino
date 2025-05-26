@@ -260,11 +260,13 @@ void loop() {
     conteo       = Serial2.readStringUntil('\n');
 
     // Enviar datos por Bluetooth siempre
-    SerialBT.println(frecuencia);
-    SerialBT.println(temperatura);
-    SerialBT.println(humedad);
-    SerialBT.println(luz);
-    SerialBT.println(conteo);
+    
+    String datos = String(temperatura) + "," + 
+               String(humedad) + "," + 
+               String(luz) + "," + 
+               String(frecuencia) + "," + 
+               String(conteo);
+SerialBT.println(datos);
 
     // Solo actualizar la pantalla si no se está mostrando el logo
     // y ha pasado el tiempo mínimo entre actualizaciones
@@ -278,7 +280,7 @@ void loop() {
   if (SerialBT.available()) {
     String comando = SerialBT.readStringUntil('\n');
     comando.trim();
-
+    Serial.print(comando);
     if (comando.equalsIgnoreCase("LOGO")) {
       mostrarLogo();
     } else {
