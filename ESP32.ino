@@ -1,40 +1,78 @@
-#include <SPI.h>
+#include <DHT.h>
+#include <DHT_U.h>
+#include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include "BluetoothSerial.h"
+#include <BluetoothSerial.h>
 
-BluetoothSerial SerialBT;
+// --- Pines ---
+#define DHTPIN 32
+#define DHTTYPE DHT11
+#define LDR_PIN 33
+#define LED1 26
+#define LED2 23
+#define LED3 18
+#define LED4 19
+
+#define PULSADOR_PIN 2
+#define FRECUENCIA_PIN 4
+
+#define OLED_SDA 21
+#define OLED_SCL 22
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define OLED_MOSI   23
-#define OLED_CLK    18
-#define OLED_DC     2
-#define OLED_CS     5
-#define OLED_RESET  4
 
-#define RXD2 16
-#define TXD2 17
+#define ROJO_PIN 13
+#define VERDE_PIN 14
+#define AZUL_PIN 27
 
+// Canales PWM
+#define PWM_CH_ROJO 0
+#define PWM_CH_VERDE 1
+#define PWM_CH_AZUL 2
+#define PWM_FREQ 5000
+#define PWM_RES 8 // 8 bits = valores de 0 a 255
+
+// --- Objetos ---
+DHT dht(DHTPIN, DHTTYPE);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+BluetoothSerial SerialBT;
+
+// --- Variables globales ---
+volatile unsigned long cuentaFrecuencia = 0;
+volatile unsigned long pulsosBoton = 0;
+volatile bool esperandoBajada = false;
+
+// Variables para el logo
 bool mostrarLogoActiva = false;
 unsigned long tiempoInicioLogo = 0;
 const unsigned long DURACION_CADA_LOGO = 3000; // 3 segundos para cada imagen
 const unsigned long DURACION_TOTAL_LOGOS = 6000; // 6 segundos total (2 imágenes)
 int imagenActual = 1; // 1 = primera imagen, 2 = segunda imagen
 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &SPI, OLED_DC, OLED_RESET, OLED_CS);
+float Vcc = 4.6;
+float Rc = 10000;
+float Rmin = 470;
+float Rmax = 10000;
 
-String frecuencia = "";
-String temperatura = "";
-String humedad = "";
-String luz = "";
-String conteo = "";
+unsigned long tiempoAnterior = 0;
+const unsigned long intervalo = 1000; // 1 segundo
 
-// Variables para control de actualización de pantalla
-unsigned long ultimaActualizacionPantalla = 0;
-const unsigned long INTERVALO_ACTUALIZACION = 100; // Actualizar pantalla cada 100ms
+// LEDs
+bool estadoLED1 = false;
+bool estadoLED2 = false;
+bool estadoLED3 = false;
+bool estadoLED4 = false;
 
-// Primera imagen en formato XBM
+// Variables para almacenar los últimos datos
+float ultimaTemperatura = 0;
+float ultimaHumedad = 0;
+float ultimaLuz = 0;
+unsigned long ultimaFrecuencia = 0;
+unsigned long ultimosPulsos = 0;
+
+// Definición de los logos en formato XBM
 #define logo_width 128
 #define logo_height 64
 const unsigned char logo_bits[] = {
@@ -173,6 +211,50 @@ const unsigned char logo2_bits[] = {
 	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
 };
 
+void setup() {
+  SerialBT.begin("ESP32-GAHO");
+  pinMode(LED1, OUTPUT);
+  pinMode(LED2, OUTPUT);
+  pinMode(LED3, OUTPUT);
+  pinMode(LED4, OUTPUT);
+
+  pinMode(PULSADOR_PIN, INPUT_PULLUP);
+  pinMode(FRECUENCIA_PIN, INPUT);
+
+  Wire.begin(OLED_SDA, OLED_SCL);
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  display.clearDisplay();
+  display.display();
+
+  attachInterrupt(digitalPinToInterrupt(PULSADOR_PIN), contarPulsador, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(FRECUENCIA_PIN), contarFrecuencia, RISING);
+
+  // Configuración PWM para cada canal
+  ledcAttach(PWM_CH_ROJO, PWM_FREQ, PWM_RES);
+  ledcAttach(PWM_CH_VERDE, PWM_FREQ, PWM_RES);
+  ledcAttach(PWM_CH_AZUL, PWM_FREQ, PWM_RES);
+
+  // Asignar cada canal a su pin
+
+Serial.begin(115200);
+  dht.begin();
+}
+
+void contarPulsador() {
+  bool estado = digitalRead(PULSADOR_PIN);
+
+  if (!esperandoBajada && estado == HIGH) {
+    esperandoBajada = true;
+  } else if (esperandoBajada && estado == LOW) {
+    pulsosBoton++;
+    esperandoBajada = false;
+  }
+}
+
+void contarFrecuencia() {
+  cuentaFrecuencia++;
+}
+
 void mostrarLogo() {
   display.clearDisplay();
   
@@ -197,33 +279,29 @@ void mostrarLogo() {
 
 void actualizarPantallaDatos() {
   display.clearDisplay();
-  display.setCursor(0, 0);
-  display.setTextSize(1);
-  display.println(frecuencia);
-  display.println(temperatura);
-  display.println(humedad);
-  display.println(luz);
-  display.println(conteo);
-  display.display();
-}
-
-void setup() {
-  Serial.begin(115200);
-  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
-  SerialBT.begin("ESP32_BT");
-
-  SPI.begin(OLED_CLK, -1, OLED_MOSI, OLED_CS);
-
-  if (!display.begin(SSD1306_SWITCHCAPVCC)) {
-    Serial.println("No se pudo iniciar OLED");
-    while (true);
-  }
-
-  display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 0);
-  display.println("Esperando datos...");
+  display.setCursor(35, 0);
+  display.print("--DATOS--");
+  display.setCursor(0, 10);
+  display.print("Temperatura: ");
+  display.print(ultimaTemperatura);
+  display.println(" C");
+  display.setCursor(0, 20);
+  display.print("Humedad: ");
+  display.print(ultimaHumedad);
+  display.println(" %");
+  display.setCursor(0, 30);
+  display.print("Luz: ");
+  display.print(ultimaLuz);
+  display.println(" %");
+  display.setCursor(0, 40);
+  display.print("Pulsos: ");
+  display.println(ultimosPulsos);
+  display.setCursor(0, 50);
+  display.print("Frecuencia: ");
+  display.print(ultimaFrecuencia);
+  display.println(" Hz");
   display.display();
 }
 
@@ -250,42 +328,76 @@ void loop() {
       actualizarPantallaDatos();
     }
   }
-
-  // Procesar datos del Arduino Mega (UART)
-  if (Serial2.available()) {
-    frecuencia   = Serial2.readStringUntil('\n');
-    temperatura  = Serial2.readStringUntil('\n');
-    humedad      = Serial2.readStringUntil('\n');
-    luz          = Serial2.readStringUntil('\n');
-    conteo       = Serial2.readStringUntil('\n');
-
-    // Enviar datos por Bluetooth siempre
+  
+  // Actualización de sensores cada segundo
+  if (tiempoActual - tiempoAnterior >= intervalo) {
+    tiempoAnterior = tiempoActual;
     
-    String datos = String(temperatura) + "," + 
-               String(humedad) + "," + 
-               String(luz) + "," + 
-               String(frecuencia) + "," + 
-               String(conteo);
-SerialBT.println(datos);
+    // Capturar y reiniciar contadores (con interrupciones bloqueadas)
+    noInterrupts();
+    unsigned long frecuencia = cuentaFrecuencia;
+    cuentaFrecuencia = 0;
+    unsigned long pulsos = pulsosBoton;
+    interrupts();
 
-    // Solo actualizar la pantalla si no se está mostrando el logo
-    // y ha pasado el tiempo mínimo entre actualizaciones
-    if (!mostrarLogoActiva && (tiempoActual - ultimaActualizacionPantalla >= INTERVALO_ACTUALIZACION)) {
+    // Sensor LDR
+    int valorBruto = analogRead(LDR_PIN);
+    float Vin = (valorBruto / 4095.0) * Vcc;
+    float luz = map(valorBruto, 0, 4095, 100, 0); // Luz % invertido
+    luz = constrain(luz, 0.0, 100.0);
+
+    // Sensor DHT
+    float temperatura = dht.readTemperature();
+    float humedad = dht.readHumidity();
+
+    // Actualizar variables globales con los últimos datos
+    ultimaTemperatura = temperatura;
+    ultimaHumedad = humedad;
+    ultimaLuz = luz;
+    ultimaFrecuencia = frecuencia;
+    ultimosPulsos = pulsos;
+
+    // Solo mostrar datos en pantalla si no se está mostrando el logo
+    if (!mostrarLogoActiva) {
       actualizarPantallaDatos();
-      ultimaActualizacionPantalla = tiempoActual;
     }
+
+    // Enviar datos por Bluetooth
+    String datos = 
+    "Temperatura: " + String(temperatura) + " C, " +
+    "Humedad: " + String(humedad) + " %, " +
+    "Luz: " + String(luz) + " %, " +
+    "Frecuencia: " + String(frecuencia) + " Hz, " +
+    "Pulsos: " + String(pulsos);
+    SerialBT.println(datos);
   }
 
   // Procesar comandos por Bluetooth
   if (SerialBT.available()) {
     String comando = SerialBT.readStringUntil('\n');
-    comando.trim();
-    Serial.print(comando);
+    comando.trim(); 
+    if (comando.startsWith("PMW:")) {
+      int valor = comando.substring(4).toInt(); // extrae número tras "PMW:"
+      valor = constrain(valor, 0, 255);
+      ledcWrite(PWM_CH_ROJO, valor);
+      ledcWrite(PWM_CH_VERDE, valor);
+      ledcWrite(PWM_CH_AZUL, valor);
+    }
     if (comando.equalsIgnoreCase("LOGO")) {
       mostrarLogo();
-    } else {
-      // Reenviar comando al Arduino Mega
-      Serial2.println(comando);
+    } else if (comando == "LED1") {
+      estadoLED1 = !estadoLED1;
+      digitalWrite(LED1, estadoLED1 ? HIGH : LOW);
+    } else if (comando == "LED2") {
+      estadoLED2 = !estadoLED2;
+      digitalWrite(LED2, estadoLED2 ? HIGH : LOW);
+    } else if (comando == "LED3") {
+      estadoLED3 = !estadoLED3;
+      digitalWrite(LED3, estadoLED3 ? HIGH : LOW);
+    } else if (comando == "LED4") {
+      estadoLED4 = !estadoLED4;
+      digitalWrite(LED4, estadoLED4 ? HIGH : LOW);
     }
+    Serial.println(comando); 
   }
 }
